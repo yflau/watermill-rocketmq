@@ -1,0 +1,73 @@
+# for Watermill development purposes.
+# For Watermill based application docker please check https://watermill.io/docs/getting-started/
+
+version: '3'
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:5.3.1
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_SERVER_ID: 1
+      ZOOKEEPER_CLIENT_PORT: "2181"
+      ZOOKEEPER_TICK_TIME: "2000"
+    network_mode: "host"
+
+  kafka1:
+    image: confluentinc/cp-kafka:5.3.1
+    depends_on:
+      - zookeeper
+    env_file:
+      - dev/docker-kafka.env
+    environment:
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9091,PLAINTEXT_HOST://localhost:29091
+      KAFKA_BROKER_ID: 1
+    network_mode: "host"
+    restart: unless-stopped
+
+  kafka2:
+    image: confluentinc/cp-kafka:5.3.1
+    depends_on:
+      - zookeeper
+    env_file:
+      - dev/docker-kafka.env
+    environment:
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_BROKER_ID: 2
+    network_mode: "host"
+    restart: unless-stopped
+
+  kafka3:
+    image: confluentinc/cp-kafka:5.3.1
+    depends_on:
+      - zookeeper
+    env_file:
+      - dev/docker-kafka.env
+    environment:
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9093,PLAINTEXT_HOST://localhost:29093
+      KAFKA_BROKER_ID: 3
+    network_mode: "host"
+    restart: unless-stopped
+
+  kafka4:
+    image: confluentinc/cp-kafka:5.3.1
+    depends_on:
+      - zookeeper
+    env_file:
+      - dev/docker-kafka.env
+    environment:
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9094,PLAINTEXT_HOST://localhost:29094
+      KAFKA_BROKER_ID: 4
+    network_mode: "host"
+    restart: unless-stopped
+
+  kafka5:
+      image: confluentinc/cp-kafka:5.3.1
+      depends_on:
+        - zookeeper
+      env_file:
+        - dev/docker-kafka.env
+      environment:
+        KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9095,PLAINTEXT_HOST://localhost:29095
+        KAFKA_BROKER_ID: 5
+      network_mode: "host"
+      restart: unless-stopped
