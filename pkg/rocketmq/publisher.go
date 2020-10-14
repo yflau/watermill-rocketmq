@@ -3,7 +3,6 @@ package rocketmq
 import (
 	"context"
 	"log"
-	"sync"
 	"time"
 
 	"github.com/ThreeDotsLabs/watermill"
@@ -122,9 +121,9 @@ func (c PublisherConfig) Validate() error {
 	return nil
 }
 
-// Publish publishes message to Kafka.
+// Publish publishes message to RocketMQ.
 //
-// Publish is blocking and wait for ack from Kafka.
+// Publish is blocking and wait for ack from RocketMQ.
 // When one of messages delivery fails - function is interrupted.
 func (p *Publisher) Publish(topic string, msgs ...*message.Message) error {
 	if p.closed {
@@ -141,6 +140,7 @@ func (p *Publisher) Publish(topic string, msgs ...*message.Message) error {
 		}
 		switch p.config.SendMode {
 		case Async:
+			err = p.sendAsync(context.Background(), msg, logFields, rocketmqMsgs...)
 		case OneWay:
 			err = p.producer.SendOneWay(context.Background())
 		default:
@@ -171,13 +171,10 @@ func (p *Publisher) sendSync(ctx context.Context, wmsg *message.Message, fields 
 }
 
 func (p *Publisher) sendAsync(ctx context.Context, wmsg *message.Message, fields map[string]interface{}, rmsg ...*primitive.Message) error {
-	var wg sync.WaitGroup
-	wg.Add(len(rmsg))
-	err := p.producer.SendAsync(ctx, wrapSendAsyncCallback(&wg, p.config.SendAsyncCallback), rmsg...)
+	err := p.producer.SendAsync(ctx, p.config.SendAsyncCallback, rmsg...)
 	if err != nil {
 		return errors.WithMessagef(err, "send sync msg %s failed", wmsg.UUID)
 	}
-	wg.Wait()
 	return nil
 }
 
@@ -209,13 +206,6 @@ const (
 
 // SendAsyncCallback callback for each message send aysnc result
 type SendAsyncCallback func(ctx context.Context, result *primitive.SendResult, err error)
-
-func wrapSendAsyncCallback(wg *sync.WaitGroup, fn SendAsyncCallback) SendAsyncCallback {
-	return func(ctx context.Context, result *primitive.SendResult, e error) {
-		fn(ctx, result, e)
-		wg.Done()
-	}
-}
 
 // DefaultSendAsyncCallback default SendAsyncCallback
 func DefaultSendAsyncCallback(ctx context.Context, result *primitive.SendResult, err error) {
