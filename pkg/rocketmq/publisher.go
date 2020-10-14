@@ -2,15 +2,16 @@ package rocketmq
 
 import (
 	"context"
+	"log"
+	"sync"
 	"time"
 
+	"github.com/ThreeDotsLabs/watermill"
+	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/apache/rocketmq-client-go/v2"
 	"github.com/apache/rocketmq-client-go/v2/primitive"
 	"github.com/apache/rocketmq-client-go/v2/producer"
 	"github.com/pkg/errors"
-
-	"github.com/ThreeDotsLabs/watermill"
-	"github.com/ThreeDotsLabs/watermill/message"
 )
 
 // Publisher the rocketmq publisher
@@ -37,6 +38,12 @@ func NewPublisher(
 	if err != nil {
 		return nil, errors.Wrap(err, "cannot create RocketMQ producer")
 	}
+	if config.SendMode == "" {
+		config.SendMode = Sync
+	}
+	if config.SendAsyncCallback == nil {
+		config.SendAsyncCallback = DefaultSendAsyncCallback
+	}
 	return &Publisher{
 		config:   config,
 		producer: producer,
@@ -60,6 +67,9 @@ type PublisherConfig struct {
 	// NsResolver            primitive.NsResolver
 	// NameServer            primitive.NamesrvAddr
 	// NameServerDomain      string
+
+	SendMode SendMode // ["sync", "async", "oneway"]
+	SendAsyncCallback
 
 	// Marshaler is used to marshal messages from Watermill format into Kafka format.
 	Marshaler Marshaler
@@ -106,6 +116,9 @@ func (c *PublisherConfig) Options() []producer.Option {
 
 // Validate validate publisher config
 func (c PublisherConfig) Validate() error {
+	if c.SendMode != "" && c.SendMode != "sync" && c.SendMode != "async" && c.SendMode != "one_way" {
+		return errors.Errorf("invalid send mode: %s", c.SendMode)
+	}
 	return nil
 }
 
@@ -126,23 +139,45 @@ func (p *Publisher) Publish(topic string, msgs ...*message.Message) error {
 		if err != nil {
 			return errors.Wrapf(err, "cannot marshal message %s", msg.UUID)
 		}
-		for _, rocketmqMsg := range rocketmqMsgs {
-			result, err := p.producer.SendSync(context.Background(), rocketmqMsg)
-			if err != nil {
-				return errors.WithMessagef(err, "send sync msg %s failed", msg.UUID)
-			}
-			logFields["send_status"] = result.Status
-			logFields["msg_id"] = result.MsgID
-			logFields["offset_msg_id"] = result.OffsetMsgID
-			logFields["queue_offset"] = result.QueueOffset
-			logFields["message_queue"] = result.MessageQueue.String()
-			logFields["transaction_id"] = result.TransactionID
-			logFields["region_id"] = result.RegionID
-			logFields["trace_on"] = result.TraceOn
-			p.logger.Trace("Message sent to RocketMQ", logFields)
+		switch p.config.SendMode {
+		case Async:
+		case OneWay:
+			err = p.producer.SendOneWay(context.Background())
+		default:
+			err = p.sendSync(context.Background(), msg, logFields, rocketmqMsgs...)
+		}
+		if err != nil {
+			return err
 		}
 	}
+	return nil
+}
 
+func (p *Publisher) sendSync(ctx context.Context, wmsg *message.Message, fields map[string]interface{}, rmsg ...*primitive.Message) error {
+	result, err := p.producer.SendSync(ctx, rmsg...)
+	if err != nil {
+		return errors.WithMessagef(err, "send sync msg %s failed", wmsg.UUID)
+	}
+	fields["send_status"] = result.Status
+	fields["msg_id"] = result.MsgID
+	fields["offset_msg_id"] = result.OffsetMsgID
+	fields["queue_offset"] = result.QueueOffset
+	fields["message_queue"] = result.MessageQueue.String()
+	fields["transaction_id"] = result.TransactionID
+	fields["region_id"] = result.RegionID
+	fields["trace_on"] = result.TraceOn
+	p.logger.Trace("Message sent to RocketMQ", fields)
+	return nil
+}
+
+func (p *Publisher) sendAsync(ctx context.Context, wmsg *message.Message, fields map[string]interface{}, rmsg ...*primitive.Message) error {
+	var wg sync.WaitGroup
+	wg.Add(len(rmsg))
+	err := p.producer.SendAsync(ctx, wrapSendAsyncCallback(&wg, p.config.SendAsyncCallback), rmsg...)
+	if err != nil {
+		return errors.WithMessagef(err, "send sync msg %s failed", wmsg.UUID)
+	}
+	wg.Wait()
 	return nil
 }
 
@@ -158,4 +193,35 @@ func (p *Publisher) Close() error {
 	}
 
 	return nil
+}
+
+// SendMode 定义发送模式
+type SendMode string
+
+const (
+	// Sync the syns mode
+	Sync SendMode = "sync"
+	// Async the async mode
+	Async SendMode = "async"
+	// OneWay the one way mode, no resule
+	OneWay SendMode = "one_way"
+)
+
+// SendAsyncCallback callback for each message send aysnc result
+type SendAsyncCallback func(ctx context.Context, result *primitive.SendResult, err error)
+
+func wrapSendAsyncCallback(wg *sync.WaitGroup, fn SendAsyncCallback) SendAsyncCallback {
+	return func(ctx context.Context, result *primitive.SendResult, e error) {
+		fn(ctx, result, e)
+		wg.Done()
+	}
+}
+
+// DefaultSendAsyncCallback default SendAsyncCallback
+func DefaultSendAsyncCallback(ctx context.Context, result *primitive.SendResult, err error) {
+	if err != nil {
+		log.Printf("receive message error: %v\n", err)
+	} else {
+		log.Printf("send message success: result=%s\n", result.String())
+	}
 }

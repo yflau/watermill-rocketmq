@@ -1,4 +1,4 @@
-module watermill-rocketmq
+module github.com/yflau/watermill-rocketmq
 
 go 1.14
 
