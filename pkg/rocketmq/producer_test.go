@@ -7,7 +7,10 @@ import (
 )
 
 func TestNewProducer(t *testing.T) {
-	pub := rocketmq.NewPublisher(rocketmq.ProducerConfig{}, nil)
+	pub, err := rocketmq.NewPublisher(rocketmq.PublisherConfig{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if pub.SendMode != "sync" {
 		t.Fatal("should ==")
 	}
