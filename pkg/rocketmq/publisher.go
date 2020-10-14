@@ -195,14 +195,6 @@ func (p *Publisher) Close() error {
 	return nil
 }
 
-func (p *Publisher) SendMode() string {
-	return string(p.config.SendMode)
-}
-
-func (p *Publisher) SendAsyncCallback() SendAsyncCallback {
-	return p.config.SendAsyncCallback
-}
-
 // SendMode 定义发送模式
 type SendMode string
 
